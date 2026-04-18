@@ -1,0 +1,1680 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <title>Kid Companion v3 - AI智能陪伴</title>
+    <!-- TensorFlow.js 用于人体检测 -->
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.10.0/dist/tf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.2/dist/coco-ssd.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        /* 年龄选择页面 */
+        .age-selector-page {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 2000;
+            padding: 20px;
+        }
+
+        .age-selector-page.hidden {
+            display: none !important;
+        }
+
+        .age-title {
+            font-size: 32px;
+            color: white;
+            font-weight: bold;
+            margin-bottom: 10px;
+            text-align: center;
+        }
+
+        .age-subtitle {
+            font-size: 20px;
+            color: rgba(255,255,255,0.8);
+            margin-bottom: 40px;
+            text-align: center;
+        }
+
+        .age-options {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 20px;
+            width: 100%;
+            max-width: 400px;
+        }
+
+        .age-btn {
+            padding: 30px 20px;
+            border: none;
+            border-radius: 20px;
+            background: rgba(255,255,255,0.9);
+            cursor: pointer;
+            transition: all 0.3s;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .age-btn:hover {
+            transform: scale(1.05);
+            background: white;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+        }
+
+        .age-btn .age-emoji {
+            font-size: 50px;
+        }
+
+        .age-btn .age-label {
+            font-size: 24px;
+            font-weight: bold;
+            color: #667eea;
+        }
+
+        .age-btn .age-desc {
+            font-size: 14px;
+            color: #666;
+        }
+
+        .gemini-setup {
+            margin-top: 30px;
+            background: rgba(255,255,255,0.9);
+            padding: 20px;
+            border-radius: 15px;
+            width: 100%;
+            max-width: 400px;
+        }
+
+        .gemini-setup h3 {
+            color: #333;
+            margin-bottom: 10px;
+            font-size: 18px;
+        }
+
+        .gemini-setup input {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #ddd;
+            border-radius: 10px;
+            font-size: 14px;
+            margin-bottom: 10px;
+        }
+
+        .gemini-setup .hint {
+            font-size: 12px;
+            color: #666;
+            margin-top: 5px;
+        }
+
+        /* 顶部控制栏 */
+        .header {
+            background: rgba(255, 255, 255, 0.95);
+            padding: 10px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+
+        .logo {
+            font-size: 20px;
+            font-weight: bold;
+            color: #667eea;
+        }
+
+        .age-badge {
+            padding: 5px 12px;
+            background: #FFE66D;
+            color: #333;
+            border-radius: 15px;
+            font-size: 12px;
+            font-weight: bold;
+        }
+
+        .status-badge {
+            padding: 5px 12px;
+            border-radius: 15px;
+            font-size: 12px;
+            font-weight: bold;
+        }
+        .status-badge.active {
+            background: #4ECDC4;
+            color: white;
+        }
+        .status-badge.detecting {
+            background: #FFE66D;
+            color: #333;
+        }
+        .status-badge.ai {
+            background: #9B59B6;
+            color: white;
+        }
+
+        .header-controls {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+
+        .voice-selector {
+            display: flex;
+            gap: 8px;
+        }
+
+        .voice-btn {
+            padding: 8px 15px;
+            border: 2px solid #667eea;
+            background: white;
+            border-radius: 20px;
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .voice-btn.active {
+            background: #667eea;
+            color: white;
+        }
+
+        .camera-toggle {
+            padding: 8px 15px;
+            background: #FF6B6B;
+            color: white;
+            border: none;
+            border-radius: 20px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        .camera-toggle.active {
+            background: #4ECDC4;
+        }
+
+        /* 主显示区域 */
+        .main-display {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 15px;
+            position: relative;
+        }
+
+        /* 摄像头预览 */
+        .camera-container {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            width: 160px;
+            height: 120px;
+            border-radius: 10px;
+            overflow: hidden;
+            border: 3px solid rgba(255,255,255,0.5);
+            background: rgba(0,0,0,0.3);
+        }
+
+        .camera-container video {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        .camera-container canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+        }
+
+        .detection-status {
+            position: absolute;
+            bottom: 5px;
+            left: 5px;
+            right: 5px;
+            background: rgba(0,0,0,0.7);
+            color: white;
+            font-size: 10px;
+            padding: 3px 5px;
+            border-radius: 3px;
+            text-align: center;
+        }
+
+        .emoji-container {
+            background: white;
+            border-radius: 30px;
+            width: 100%;
+            max-width: 500px;
+            aspect-ratio: 4/3;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.2);
+            margin-bottom: 20px;
+            position: relative;
+            overflow: hidden;
+            transition: all 0.3s;
+        }
+
+        .emoji-container.speaking {
+            transform: scale(1.02);
+            box-shadow: 0 25px 70px rgba(0,0,0,0.3);
+        }
+
+        .emoji-display {
+            font-size: 120px;
+            transition: all 0.3s;
+        }
+
+        .emoji-display.bounce {
+            animation: emojiBounce 0.5s ease;
+        }
+
+        @keyframes emojiBounce {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.2); }
+        }
+
+        .english-text {
+            font-size: 32px;
+            color: white;
+            text-align: center;
+            font-weight: bold;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+            margin-bottom: 8px;
+            min-height: 40px;
+            opacity: 0;
+            transform: translateY(10px);
+            transition: all 0.3s;
+        }
+
+        .english-text.show {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        .phonetic-text {
+            font-size: 18px;
+            color: rgba(255,255,255,0.8);
+            text-align: center;
+            margin-bottom: 15px;
+            opacity: 0;
+            transform: translateY(10px);
+            transition: all 0.3s 0.1s;
+        }
+
+        .phonetic-text.show {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        /* AI 对话区域 */
+        .chat-hint {
+            font-size: 14px;
+            color: rgba(255,255,255,0.9);
+            text-align: center;
+            padding: 8px 15px;
+            background: rgba(255,255,255,0.2);
+            border-radius: 20px;
+            margin-bottom: 10px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .chat-hint.recording {
+            background: #FF6B6B;
+            animation: pulse 1s infinite;
+        }
+
+        .chat-hint.ai-thinking {
+            background: #9B59B6;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.7; }
+        }
+
+        .mic-btn {
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            border: none;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            font-size: 28px;
+            cursor: pointer;
+            box-shadow: 0 5px 20px rgba(0,0,0,0.3);
+            transition: all 0.3s;
+            margin-bottom: 15px;
+        }
+
+        .mic-btn:hover {
+            transform: scale(1.1);
+        }
+
+        .mic-btn.recording {
+            background: #FF6B6B;
+            animation: micPulse 1s infinite;
+        }
+
+        @keyframes micPulse {
+            0%, 100% { box-shadow: 0 0 0 0 rgba(255,107,107,0.7); }
+            50% { box-shadow: 0 0 0 15px rgba(255,107,107,0); }
+        }
+
+        /* 场景选择区 */
+        .scene-selector {
+            background: rgba(255, 255, 255, 0.95);
+            padding: 15px;
+            border-radius: 20px 20px 0 0;
+        }
+
+        .scene-title {
+            font-size: 16px;
+            color: #333;
+            margin-bottom: 10px;
+            text-align: center;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+        }
+
+        .auto-mode-indicator {
+            font-size: 12px;
+            padding: 3px 10px;
+            background: #4ECDC4;
+            color: white;
+            border-radius: 10px;
+        }
+
+        .scenes {
+            display: flex;
+            justify-content: center;
+            gap: 8px;
+            margin-bottom: 15px;
+            flex-wrap: wrap;
+            overflow-x: auto;
+            padding-bottom: 5px;
+        }
+
+        .scene-btn {
+            padding: 10px 15px;
+            border: none;
+            border-radius: 12px;
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.3s;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 3px;
+            min-width: 70px;
+        }
+
+        .scene-btn .emoji {
+            font-size: 28px;
+        }
+
+        .scene-btn .label {
+            font-size: 11px;
+            font-weight: bold;
+        }
+
+        .scene-btn.wash { background: #4ECDC4; color: white; }
+        .scene-btn.eat { background: #FF6B6B; color: white; }
+        .scene-btn.play { background: #FFE66D; color: #333; }
+        .scene-btn.sleep { background: #9B59B6; color: white; }
+        .scene-btn.brush { background: #45B7D1; color: white; }
+        .scene-btn.dress { background: #F7DC6F; color: #333; }
+        .scene-btn.potty { background: #BB8FCE; color: white; }
+        .scene-btn.clean { background: #85C1E2; color: white; }
+        .scene-btn.read { background: #F8B500; color: white; }
+        .scene-btn.draw { background: #52BE80; color: white; }
+
+        .scene-btn:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 8px 15px rgba(0,0,0,0.2);
+        }
+
+        .scene-btn.active {
+            box-shadow: 0 0 0 3px #667eea;
+        }
+
+        /* 动作按钮 */
+        .action-area {
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+        }
+
+        .action-btn {
+            padding: 12px 25px;
+            border: none;
+            border-radius: 25px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .btn-start {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .btn-repeat {
+            background: #95a5a6;
+            color: white;
+        }
+
+        .action-btn:hover {
+            transform: scale(1.05);
+        }
+
+        /* 加载界面 */
+        .loading {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.9);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            z-index: 1000;
+        }
+
+        .loading.hidden {
+            display: none !important;
+        }
+
+        .loading-spinner {
+            font-size: 60px;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+
+        .loading-steps {
+            margin-top: 30px;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            align-items: center;
+        }
+
+        .loading-step {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 16px;
+            opacity: 0.5;
+        }
+
+        .loading-step.active {
+            opacity: 1;
+        }
+
+        .loading-step.done {
+            opacity: 1;
+            color: #4ECDC4;
+        }
+    </style>
+</head>
+<body>
+    <!-- 年龄选择页面 -->
+    <div id="ageSelectorPage" class="age-selector-page">
+        <div class="age-title">小朋友几岁了？</div>
+        <div class="age-subtitle">How old are you?</div>
+        
+        <div class="age-options">
+            <button class="age-btn" onclick="selectAge(1)">
+                <span class="age-emoji">👶</span>
+                <span class="age-label">1-2岁</span>
+                <span class="age-desc">简单词汇</span>
+            </button>
+            <button class="age-btn" onclick="selectAge(2)">
+                <span class="age-emoji">🧒</span>
+                <span class="age-label">2-3岁</span>
+                <span class="age-desc">短句</span>
+            </button>
+            <button class="age-btn" onclick="selectAge(3)">
+                <span class="age-emoji">👦</span>
+                <span class="age-label">3-4岁</span>
+                <span class="age-desc">完整句子</span>
+            </button>
+            <button class="age-btn" onclick="selectAge(4)">
+                <span class="age-emoji">🧑</span>
+                <span class="age-label">4-5岁</span>
+                <span class="age-desc">对话互动</span>
+            </button>
+        </div>
+
+        <div class="gemini-setup">
+            <h3>🤖 Gemini API Key（可选，可跳过）</h3>
+            <input type="password" id="geminiKey" placeholder="输入 API Key 启用 AI 对话（可选）" />
+            <div class="hint">
+                💡 从 <a href="https://makersuite.google.com" target="_blank" style="color: #667eea;">makersuite.google.com</a> 获取免费 Key<br>
+                不填也能用，后面在主界面随时可添加
+            </div>
+            <button onclick="selectAgeWithoutKey()" style="margin-top: 10px; padding: 10px 20px; background: #95a5a6; color: white; border: none; border-radius: 10px; cursor: pointer; width: 100%;">⏭️ 跳过，稍后设置</button>
+        </div>
+    </div>
+
+    <!-- 加载界面 -->
+    <div id="loading" class="loading hidden">
+        <div class="loading-spinner">🔄</div>
+        <p style="margin-top: 20px; font-size: 20px;">Kid Companion v3 启动中...</p>
+        <div class="loading-steps">
+            <div class="loading-step" id="step1">
+                <span>⏳</span> 初始化语音引擎
+            </div>
+            <div class="loading-step" id="step2">
+                <span>⏳</span> 加载 AI 模型
+            </div>
+            <div class="loading-step" id="step3">
+                <span>⏳</span> 启动摄像头检测
+            </div>
+        </div>
+    </div>
+
+    <!-- 主应用界面 -->
+    <div id="mainApp" style="display: none; flex-direction: column; height: 100vh;">
+        <!-- 顶部控制栏 -->
+        <header class="header">
+            <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+                <div class="logo">👶 Kid Companion</div>
+                <span id="ageBadge" class="age-badge">1-2岁</span>
+                <button onclick="toggleApiKeyInput()" style="padding: 5px 10px; background: #9B59B6; color: white; border: none; border-radius: 10px; font-size: 12px; cursor: pointer;">🔑 API Key</button>
+            </div>
+            <span id="systemStatus" class="status-badge detecting">🤖 准备中</span>
+            <div class="header-controls">
+                <div class="voice-selector">
+                    <button class="voice-btn active" data-voice="child" onclick="setVoice('child')">👶童声</button>
+                    <button class="voice-btn" data-voice="male" onclick="setVoice('male')">👦男声</button>
+                    <button class="voice-btn" data-voice="female" onclick="setVoice('female')">👧女声</button>
+                </div>
+                <button class="camera-toggle" id="cameraBtn" onclick="toggleCamera()">📷 开启摄像头</button>
+            </div>
+        </header>
+
+        <!-- API Key 输入弹窗 -->
+        <div id="apiKeyModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 1500; align-items: center; justify-content: center;">
+            <div style="background: white; padding: 30px; border-radius: 20px; max-width: 400px; width: 90%;">
+                <h3 style="margin-bottom: 15px; color: #333;">🤖 Gemini API Key</h3>
+                <input type="password" id="apiKeyInput" placeholder="输入 API Key 启用 AI 对话" style="width: 100%; padding: 12px; border: 2px solid #ddd; border-radius: 10px; margin-bottom: 10px; font-size: 14px;" />
+                <div style="font-size: 12px; color: #666; margin-bottom: 15px;">
+                    💡 从 <a href="https://makersuite.google.com" target="_blank" style="color: #667eea;">makersuite.google.com</a> 获取免费 Key
+                </div>
+                <div style="display: flex; gap: 10px;">
+                    <button onclick="saveApiKey()" style="flex: 1; padding: 12px; background: #4ECDC4; color: white; border: none; border-radius: 10px; cursor: pointer; font-weight: bold;">保存</button>
+                    <button onclick="closeApiKeyModal()" style="flex: 1; padding: 12px; background: #95a5a6; color: white; border: none; border-radius: 10px; cursor: pointer;">取消</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 主显示区域 -->
+        <main class="main-display">
+            <!-- 摄像头预览 -->
+            <div class="camera-container hidden" id="cameraContainer">
+                <video id="cameraVideo" autoplay playsinline muted></video>
+                <canvas id="cameraCanvas"></canvas>
+                <div class="detection-status" id="detectionStatus">等待检测...</div>
+            </div>
+
+            <div class="emoji-container" id="emojiContainer">
+                <div class="emoji-display" id="emojiDisplay">👋</div>
+            </div>
+
+            <div class="english-text" id="englishText">Hello! I'm your friend!</div>
+            <div class="phonetic-text" id="phoneticText">你好！我是你的朋友！</div>
+
+            <!-- AI 对话按钮 -->
+            <div class="chat-hint" id="chatHint">
+                <span>🎤</span> 按住麦克风跟我说话（中文也可以）
+            </div>
+            <button class="mic-btn" id="micBtn" 
+                onmousedown="startRecording()" onmouseup="stopRecording()" 
+                ontouchstart="startRecording()" ontouchend="stopRecording()">
+                🎤
+            </button>
+        </main>
+
+        <!-- 场景选择区 -->
+        <section class="scene-selector">
+            <div class="scene-title">
+                <span>场景 / Scene</span>
+                <span class="auto-mode-indicator" id="autoModeBadge">🤖 自动模式</span>
+            </div>
+            <div class="scenes" id="sceneButtons">
+                <!-- 动态生成 -->
+            </div>
+            <div class="action-area">
+                <button class="action-btn btn-start" onclick="startInteraction()">
+                    <span>▶️</span>
+                    <span>开始 / Start</span>
+                </button>
+                <button class="action-btn btn-repeat" onclick="repeatCurrent()">
+                    <span>🔁</span>
+                    <span>重复 / Repeat</span>
+                </button>
+            </div>
+        </section>
+    </div>
+
+    <script>
+        // ============== 全局配置 ==============
+        const CONFIG = {
+            speechRate: 1.0,
+            speechPitch: 1.0,
+            detectionInterval: 1000,
+            detectionThreshold: 2,
+            sceneCooldown: 10000,
+            geminiApiKey: '',
+            childAge: 1 // 1-4 对应 1-2, 2-3, 3-4, 4-5岁
+        };
+
+        // ============== 按年龄分级的场景数据 ==============
+        const SCENES_DATA = {
+            'wash': {
+                name: '洗手',
+                emoji: '🧼',
+                triggerWords: ['洗手', 'water', '手', 'wash', 'clean'],
+                levels: {
+                    1: [ // 1-2岁：单词
+                        { emoji: '🧼💧', text: 'Wash!', phonetic: '洗！' },
+                        { emoji: '🫧', text: 'Bubbles!', phonetic: '泡泡！' },
+                        { emoji: '👏', text: 'Clean!', phonetic: '干净！' }
+                    ],
+                    2: [ // 2-3岁：短句
+                        { emoji: '🧼💧', text: 'Wash hands!', phonetic: '洗手！' },
+                        { emoji: '🫧🫧', text: 'Soap bubbles!', phonetic: '肥皂泡泡！' },
+                        { emoji: '💦', text: 'Rinse!', phonetic: '冲水！' },
+                        { emoji: '✨', text: 'All clean!', phonetic: '干净啦！' }
+                    ],
+                    3: [ // 3-4岁：完整句
+                        { emoji: '🧼💧', text: 'Time to wash hands!', phonetic: '该洗手啦！' },
+                        { emoji: '🫧🫧', text: 'Make soap bubbles!', phonetic: '搓出泡泡！' },
+                        { emoji: '🙌', text: 'Rub rub rub!', phonetic: '搓搓搓！' },
+                        { emoji: '💦💦', text: 'Wash away bubbles!', phonetic: '冲掉泡泡！' },
+                        { emoji: '✨👏', text: 'Great job! Clean hands!', phonetic: '真棒！手干净啦！' }
+                    ],
+                    4: [ // 4-5岁：对话式
+                        { emoji: '🧼💧', text: 'Hey! Let\'s wash our hands together!', phonetic: '嘿！我们一起洗手吧！' },
+                        { emoji: '🫧🫧', text: 'Can you make lots of bubbles?', phonetic: '你能搓出很多泡泡吗？' },
+                        { emoji: '🙌🙌', text: 'Rub your hands like this!', phonetic: '像这样搓手！' },
+                        { emoji: '💦💦', text: 'Wash all the bubbles away!', phonetic: '把泡泡都冲掉！' },
+                        { emoji: '🧻👐', text: 'Now dry your hands with a towel!', phonetic: '现在用毛巾擦干手！' },
+                        { emoji: '✨👏', text: 'Wow! Your hands are super clean!', phonetic: '哇！你的手超级干净！' }
+                    ]
+                }
+            },
+            'eat': {
+                name: '吃饭',
+                emoji: '🍚',
+                triggerWords: ['吃饭', '吃', '饭', 'eat', 'food', 'hungry'],
+                levels: {
+                    1: [
+                        { emoji: '🍚', text: 'Eat!', phonetic: '吃！' },
+                        { emoji: '😋', text: 'Yummy!', phonetic: '好吃！' },
+                        { emoji: '👍', text: 'Good!', phonetic: '乖！' }
+                    ],
+                    2: [
+                        { emoji: '🍽️', text: 'Time to eat!', phonetic: '吃饭啦！' },
+                        { emoji: '🥄', text: 'Use spoon!', phonetic: '用勺子！' },
+                        { emoji: '😋', text: 'So yummy!', phonetic: '真好吃！' },
+                        { emoji: '👏', text: 'Good eating!', phonetic: '吃得真好！' }
+                    ],
+                    3: [
+                        { emoji: '🍽️😋', text: 'Let\'s have lunch!', phonetic: '我们吃午饭吧！' },
+                        { emoji: '🥄🍚', text: 'Pick up your spoon!', phonetic: '拿起你的勺子！' },
+                        { emoji: '👄', text: 'Open your mouth!', phonetic: '张开嘴巴！' },
+                        { emoji: '🦷', text: 'Chew your food!', phonetic: '嚼嚼食物！' },
+                        { emoji: '🎉', text: 'You did it!', phonetic: '你做到了！' }
+                    ],
+                    4: [
+                        { emoji: '🍽️✨', text: 'What do you want to eat today?', phonetic: '你今天想吃什么？' },
+                        { emoji: '🥄🍚', text: 'Can you feed yourself with the spoon?', phonetic: '你能自己用勺子吃吗？' },
+                        { emoji: '😋👄', text: 'Take a big bite!', phonetic: '咬一大口！' },
+                        { emoji: '🥛', text: 'Don\'t forget to drink water!', phonetic: '别忘了喝水！' },
+                        { emoji: '🎉✨', text: 'Excellent! You finished everything!', phonetic: '太棒了！你全都吃完了！' }
+                    ]
+                }
+            },
+            'play': {
+                name: '玩耍',
+                emoji: '🎈',
+                triggerWords: ['玩', 'play', '玩具', 'ball', 'fun'],
+                levels: {
+                    1: [
+                        { emoji: '🎈', text: 'Play!', phonetic: '玩！' },
+                        { emoji: '🏃', text: 'Run!', phonetic: '跑！' },
+                        { emoji: '😄', text: 'Fun!', phonetic: '好玩！' }
+                    ],
+                    2: [
+                        { emoji: '🎈', text: 'Let\'s play!', phonetic: '一起玩！' },
+                        { emoji: '🏃', text: 'Run run!', phonetic: '跑跑！' },
+                        { emoji: '👏', text: 'Clap!', phonetic: '拍手！' },
+                        { emoji: '🤗', text: 'Hug!', phonetic: '抱抱！' }
+                    ],
+                    3: [
+                        { emoji: '🎈🎉', text: 'Let\'s have fun!', phonetic: '我们玩得开心点！' },
+                        { emoji: '🏃💨', text: 'Run as fast as you can!', phonetic: '能跑多快就跑多快！' },
+                        { emoji: '🎵', text: 'Sing a song!', phonetic: '唱首歌！' },
+                        { emoji: '🤗💕', text: 'Give me a hug!', phonetic: '给我抱抱！' }
+                    ],
+                    4: [
+                        { emoji: '🎈✨', text: 'What game do you want to play?', phonetic: '你想玩什么游戏？' },
+                        { emoji: '🏃‍♂️', text: 'Can you catch me?', phonetic: '你能抓住我吗？' },
+                        { emoji: '🎵🎶', text: 'Let\'s sing Twinkle Twinkle!', phonetic: '我们一起唱小星星！' },
+                        { emoji: '🤗💕', text: 'You\'re my best friend!', phonetic: '你是我最好的朋友！' }
+                    ]
+                }
+            },
+            'sleep': {
+                name: '睡觉',
+                emoji: '🛏️',
+                triggerWords: ['睡觉', '睡', 'bed', 'sleepy', 'tired', 'night'],
+                levels: {
+                    1: [
+                        { emoji: '🛏️', text: 'Sleep!', phonetic: '睡觉！' },
+                        { emoji: '🧸', text: 'Teddy!', phonetic: '小熊！' },
+                        { emoji: '😴', text: 'Night night!', phonetic: '晚安！' }
+                    ],
+                    2: [
+                        { emoji: '🌙', text: 'Bedtime!', phonetic: '睡觉时间！' },
+                        { emoji: '🧸', text: 'Hug teddy!', phonetic: '抱小熊！' },
+                        { emoji: '📖', text: 'Story time!', phonetic: '讲故事！' },
+                        { emoji: '💤', text: 'Sweet dreams!', phonetic: '好梦！' }
+                    ],
+                    3: [
+                        { emoji: '🌙🛏️', text: 'Time for bed!', phonetic: '该睡觉啦！' },
+                        { emoji: '🧸💕', text: 'Get your favorite teddy!', phonetic: '拿上你最喜欢的小熊！' },
+                        { emoji: '📖✨', text: 'Let\'s read a bedtime story!', phonetic: '我们读睡前故事吧！' },
+                        { emoji: '🐑', text: 'Count the sheep!', phonetic: '数羊羊！' },
+                        { emoji: '💤⭐', text: 'Good night! Sleep tight!', phonetic: '晚安！睡个好觉！' }
+                    ],
+                    4: [
+                        { emoji: '🌙✨', text: 'The moon is out! Time to sleep!', phonetic: '月亮出来了！该睡觉啦！' },
+                        { emoji: '🧸💕', text: 'Which teddy bear will sleep with you tonight?', phonetic: '今晚哪只小熊陪你睡？' },
+                        { emoji: '📖🌟', text: 'What story shall we read tonight?', phonetic: '今晚我们读什么故事？' },
+                        { emoji: '💤😴', text: 'Close your eyes and dream sweet dreams!', phonetic: '闭上眼睛，做好梦！' }
+                    ]
+                }
+            },
+            'brush': {
+                name: '刷牙',
+                emoji: '🦷',
+                triggerWords: ['刷牙', '牙', 'brush', 'teeth', 'tooth'],
+                levels: {
+                    1: [
+                        { emoji: '🦷', text: 'Brush!', phonetic: '刷！' },
+                        { emoji: '🪥', text: 'Teeth!', phonetic: '牙齿！' },
+                        { emoji: '✨', text: 'Clean!', phonetic: '干净！' }
+                    ],
+                    2: [
+                        { emoji: '🪥', text: 'Brush teeth!', phonetic: '刷牙！' },
+                        { emoji: '🦷', text: 'Up and down!', phonetic: '上上下下！' },
+                        { emoji: '⏰', text: 'Two minutes!', phonetic: '两分钟！' },
+                        { emoji: '✨', text: 'Sparkling!', phonetic: '亮晶晶！' }
+                    ],
+                    3: [
+                        { emoji: '🪥🦷', text: 'Time to brush your teeth!', phonetic: '该刷牙啦！' },
+                        { emoji: '🎵', text: 'Brush up and down!', phonetic: '上上下下地刷！' },
+                        { emoji: '😁', text: 'Don\'t forget the back teeth!', phonetic: '别忘了刷后面的牙！' },
+                        { emoji: '✨👄', text: 'Your smile is sparkling!', phonetic: '你的笑容亮晶晶！' }
+                    ],
+                    4: [
+                        { emoji: '🪥✨', text: 'Let\'s make those teeth sparkle!', phonetic: '我们让牙齿闪闪发光吧！' },
+                        { emoji: '🎵🦷', text: 'Brush in circles, round and round!', phonetic: '转着圈刷，刷啊刷！' },
+                        { emoji: '⏰', text: 'We need to brush for two whole minutes!', phonetic: '我们要刷整整两分钟！' },
+                        { emoji: '😁✨', text: 'Wow! Your teeth look amazing!', phonetic: '哇！你的牙齿看起来真棒！' }
+                    ]
+                }
+            },
+            'dress': {
+                name: '穿衣',
+                emoji: '👕',
+                triggerWords: ['衣服', '穿', 'dress', 'shirt', 'clothes'],
+                levels: {
+                    1: [
+                        { emoji: '👕', text: 'Shirt!', phonetic: '衣服！' },
+                        { emoji: '👖', text: 'Pants!', phonetic: '裤子！' },
+                        { emoji: '👟', text: 'Shoes!', phonetic: '鞋子！' }
+                    ],
+                    2: [
+                        { emoji: '👕', text: 'Put on shirt!', phonetic: '穿衣服！' },
+                        { emoji: '👖', text: 'Put on pants!', phonetic: '穿裤子！' },
+                        { emoji: '👟', text: 'Put on shoes!', phonetic: '穿鞋子！' },
+                        { emoji: '👍', text: 'All dressed!', phonetic: '穿好啦！' }
+                    ],
+                    3: [
+                        { emoji: '👕✨', text: 'Let\'s get dressed!', phonetic: '我们穿衣服吧！' },
+                        { emoji: '👖', text: 'Pants go on first!', phonetic: '先穿裤子！' },
+                        { emoji: '👕', text: 'Shirt over your head!', phonetic: '衣服套过头！' },
+                        { emoji: '👟', text: 'Shoes on your feet!', phonetic: '鞋子穿脚上！' }
+                    ],
+                    4: [
+                        { emoji: '👕🌈', text: 'What do you want to wear today?', phonetic: '你今天想穿什么？' },
+                        { emoji: '👖✨', text: 'Can you put on your pants by yourself?', phonetic: '你能自己穿裤子吗？' },
+                        { emoji: '👟🎉', text: 'Which shoes do you like?', phonetic: '你喜欢哪双鞋？' },
+                        { emoji: '🤩', text: 'You look fantastic today!', phonetic: '你今天看起来太棒了！' }
+                    ]
+                }
+            },
+            'potty': {
+                name: '上厕所',
+                emoji: '🚽',
+                triggerWords: ['厕所', '尿', ' potty', 'toilet', 'pee', 'poo'],
+                levels: {
+                    1: [
+                        { emoji: '🚽', text: 'Potty!', phonetic: '厕所！' },
+                        { emoji: '🧻', text: 'Paper!', phonetic: '纸！' },
+                        { emoji: '🚿', text: 'Wash!', phonetic: '洗！' }
+                    ],
+                    2: [
+                        { emoji: '🚽', text: 'Go potty!', phonetic: '去厕所！' },
+                        { emoji: '🧻', text: 'Use paper!', phonetic: '用纸！' },
+                        { emoji: '🚿', text: 'Wash hands!', phonetic: '洗手！' },
+                        { emoji: '👍', text: 'Good job!', phonetic: '真棒！' }
+                    ],
+                    3: [
+                        { emoji: '🚽💭', text: 'Do you need to go potty?', phonetic: '你要上厕所吗？' },
+                        { emoji: '🚽', text: 'Sit on the toilet!', phonetic: '坐在马桶上！' },
+                        { emoji: '🧻', text: 'Wipe with paper!', phonetic: '用纸擦！' },
+                        { emoji: '🚿', text: 'Flush and wash!', phonetic: '冲水洗手！' }
+                    ],
+                    4: [
+                        { emoji: '🚽✨', text: 'Let me know if you need the potty, okay?', phonetic: '如果要上厕所告诉我好吗？' },
+                        { emoji: '🚽🧻', text: 'Remember to wipe and flush!', phonetic: '记得擦和冲水！' },
+                        { emoji: '🚿✨', text: 'Always wash hands after potty!', phonetic: '上完厕所一定要洗手！' }
+                    ]
+                }
+            },
+            'clean': {
+                name: '收拾',
+                emoji: '🧸',
+                triggerWords: ['收拾', '玩具', 'clean', 'toys', 'tidy'],
+                levels: {
+                    1: [
+                        { emoji: '📦', text: 'Clean up!', phonetic: '收拾！' },
+                        { emoji: '🧸', text: 'Toys away!', phonetic: '玩具收起来！' },
+                        { emoji: '👍', text: 'Good!', phonetic: '乖！' }
+                    ],
+                    2: [
+                        { emoji: '📦', text: 'Clean up time!', phonetic: '收拾时间！' },
+                        { emoji: '🧸', text: 'Toys in box!', phonetic: '玩具进箱子！' },
+                        { emoji: '🎵', text: 'Clean up song!', phonetic: '收拾歌！' },
+                        { emoji: '✨', text: 'All done!', phonetic: '完成！' }
+                    ],
+                    3: [
+                        { emoji: '📦🎵', text: 'Time to clean up!', phonetic: '该收拾啦！' },
+                        { emoji: '🧸📦', text: 'Put toys in the box!', phonetic: '把玩具放进箱子！' },
+                        { emoji: '📚', text: 'Books on the shelf!', phonetic: '书放书架上！' },
+                        { emoji: '✨👏', text: 'Room looks great!', phonetic: '房间看起来真棒！' }
+                    ],
+                    4: [
+                        { emoji: '📦✨', text: 'Can you help me clean up?', phonetic: '你能帮我收拾吗？' },
+                        { emoji: '🧸❓', text: 'Where does this toy belong?', phonetic: '这个玩具该放哪？' },
+                        { emoji: '📚📖', text: 'Let\'s put the books back on the shelf!', phonetic: '我们把书放回书架！' },
+                        { emoji: '🎉✨', text: 'Thank you for helping! You\'re awesome!', phonetic: '谢谢你帮忙！你太棒了！' }
+                    ]
+                }
+            },
+            'read': {
+                name: '看书',
+                emoji: '📚',
+                triggerWords: ['书', '读', 'read', 'book', 'story'],
+                levels: {
+                    1: [
+                        { emoji: '📚', text: 'Book!', phonetic: '书！' },
+                        { emoji: '📖', text: 'Read!', phonetic: '读！' },
+                        { emoji: '🐻', text: 'Bear!', phonetic: '熊！' }
+                    ],
+                    2: [
+                        { emoji: '📚', text: 'Read book!', phonetic: '读书！' },
+                        { emoji: '📖', text: 'Turn page!', phonetic: '翻页！' },
+                        { emoji: '🐻', text: 'See bear!', phonetic: '看小熊！' },
+                        { emoji: '😊', text: 'Good story!', phonetic: '好故事！' }
+                    ],
+                    3: [
+                        { emoji: '📚✨', text: 'Let\'s read a book!', phonetic: '我们读书吧！' },
+                        { emoji: '📖', text: 'Turn the page!', phonetic: '翻页！' },
+                        { emoji: '🐻💭', text: 'What does the bear say?', phonetic: '小熊说什么？' },
+                        { emoji: '😊💕', text: 'I love this story!', phonetic: '我喜欢这个故事！' }
+                    ],
+                    4: [
+                        { emoji: '📚🤔', text: 'Which book should we read today?', phonetic: '我们今天读哪本书？' },
+                        { emoji: '📖✨', text: 'Can you read the title?', phonetic: '你能读标题吗？' },
+                        { emoji: '🐻💬', text: 'What do you think happens next?', phonetic: '你觉得接下来发生什么？' },
+                        { emoji: '😊📚', text: 'Reading with you is my favorite!', phonetic: '和你一起读书是我最喜欢的！' }
+                    ]
+                }
+            },
+            'draw': {
+                name: '画画',
+                emoji: '🎨',
+                triggerWords: ['画', '画画', 'draw', 'paint', 'color'],
+                levels: {
+                    1: [
+                        { emoji: '🎨', text: 'Draw!', phonetic: '画！' },
+                        { emoji: '🖍️', text: 'Color!', phonetic: '涂色！' },
+                        { emoji: '🌈', text: 'Rainbow!', phonetic: '彩虹！' }
+                    ],
+                    2: [
+                        { emoji: '🎨', text: 'Let\'s draw!', phonetic: '画画吧！' },
+                        { emoji: '🖍️', text: 'Pick a color!', phonetic: '选颜色！' },
+                        { emoji: '🌈', text: 'So colorful!', phonetic: '好 colorful！' },
+                        { emoji: '👍', text: 'Beautiful!', phonetic: '真漂亮！' }
+                    ],
+                    3: [
+                        { emoji: '🎨✨', text: 'Time to be creative!', phonetic: '创作时间到！' },
+                        { emoji: '🖍️🌈', text: 'What color do you want?', phonetic: '你想要什么颜色？' },
+                        { emoji: '🐱🐶', text: 'Draw a cat or a dog!', phonetic: '画猫还是狗？' },
+                        { emoji: '🎉🖼️', text: 'What a masterpiece!', phonetic: '多么棒的杰作！' }
+                    ],
+                    4: [
+                        { emoji: '🎨💭', text: 'What do you want to draw today?', phonetic: '你今天想画什么？' },
+                        { emoji: '🌈🖍️', text: 'Let\'s use all the rainbow colors!', phonetic: '我们用所有彩虹色！' },
+                        { emoji: '🏠🌳', text: 'Can you draw your house and a tree?', phonetic: '你能画你的房子和树吗？' },
+                        { emoji: '🤩🖼️', text: 'You\'re such a great artist!', phonetic: '你真是个了不起的艺术家！' }
+                    ]
+                }
+            },
+            'hello': {
+                name: '打招呼',
+                emoji: '👋',
+                triggerWords: ['你好', 'hello', 'hi', '再见', 'bye'],
+                levels: {
+                    1: [
+                        { emoji: '👋', text: 'Hello!', phonetic: '你好！' },
+                        { emoji: '😊', text: 'Hi!', phonetic: '嗨！' },
+                        { emoji: '👋', text: 'Bye bye!', phonetic: '再见！' }
+                    ],
+                    2: [
+                        { emoji: '👋', text: 'Say hello!', phonetic: '说你好！' },
+                        { emoji: '😊', text: 'Wave hello!', phonetic: '挥手你好！' },
+                        { emoji: '👋', text: 'Goodbye!', phonetic: '再见！' },
+                        { emoji: '🌟', text: 'See you!', phonetic: '回头见！' }
+                    ],
+                    3: [
+                        { emoji: '👋😊', text: 'Hello! How are you?', phonetic: '你好！你好吗？' },
+                        { emoji: '🌞', text: 'Good morning!', phonetic: '早上好！' },
+                        { emoji: '🌙', text: 'Good night!', phonetic: '晚上好！' },
+                        { emoji: '👋💕', text: 'See you tomorrow!', phonetic: '明天见！' }
+                    ],
+                    4: [
+                        { emoji: '👋✨', text: 'Hello there! Nice to see you!', phonetic: '你好！很高兴见到你！' },
+                        { emoji: '🤗💕', text: 'Give me a big hug!', phonetic: '给我一个大大的拥抱！' },
+                        { emoji: '🌞🌻', text: 'What a beautiful day!', phonetic: '多么美好的一天！' },
+                        { emoji: '👋😊', text: 'See you later, alligator!', phonetic: '回头见，小鳄鱼！' }
+                    ]
+                }
+            }
+        };
+
+        // ============== 状态管理 ==============
+        let state = {
+            currentScene: 'wash',
+            currentStep: 0,
+            currentVoice: 'child',
+            isSpeaking: false,
+            isRecording: false,
+            cameraActive: false,
+            modelLoaded: false,
+            detectionModel: null,
+            personDetectedCount: 0,
+            lastSceneTrigger: 0,
+            speechSynthesis: window.speechSynthesis,
+            voices: [],
+            recognition: null
+        };
+
+        // ============== 年龄选择 ==============
+        function selectAge(age) {
+            doSelectAge(age, true);
+        }
+
+        function selectAgeWithoutKey() {
+            // 默认选择2-3岁，如果有按钮被选中则使用该年龄
+            doSelectAge(2, false);
+        }
+
+        function doSelectAge(age, useKeyFromInput) {
+            CONFIG.childAge = age;
+            
+            // 获取 Gemini API Key（可选）
+            if (useKeyFromInput) {
+                const geminiKey = document.getElementById('geminiKey').value.trim();
+                if (geminiKey) {
+                    CONFIG.geminiApiKey = geminiKey;
+                    localStorage.setItem('kidCompanionApiKey', geminiKey);
+                }
+            }
+            
+            // 检查本地存储
+            const savedKey = localStorage.getItem('kidCompanionApiKey');
+            if (savedKey && !CONFIG.geminiApiKey) {
+                CONFIG.geminiApiKey = savedKey;
+            }
+            
+            // 更新年龄显示
+            const ageLabels = ['', '1-2岁', '2-3岁', '3-4岁', '4-5岁'];
+            document.getElementById('ageBadge').textContent = ageLabels[age];
+            
+            // 根据年龄调整语速
+            const ageRates = [0, 0.7, 0.85, 1.0, 1.1];
+            CONFIG.speechRate = ageRates[age];
+            
+            // 显示加载界面
+            document.getElementById('ageSelectorPage').classList.add('hidden');
+            document.getElementById('loading').classList.remove('hidden');
+            document.getElementById('mainApp').style.display = 'flex';
+            
+            // 初始化
+            setTimeout(() => {
+                init();
+            }, 500);
+        }
+
+        // ============== 初始化 ==============
+        async function init() {
+            console.log('🚀 Kid Companion v3 Initializing...');
+            updateLoadingStep(1, 'active');
+
+            // 初始化语音
+            await initSpeech();
+            updateLoadingStep(1, 'done');
+            updateLoadingStep(2, 'active');
+
+            // 加载检测模型
+            await initDetectionModel();
+            updateLoadingStep(2, 'done');
+            updateLoadingStep(3, 'active');
+
+            // 初始化语音识别
+            initSpeechRecognition();
+
+            // 生成场景按钮
+            generateSceneButtons();
+
+            // 更新显示
+            updateDisplay();
+
+            // 关闭加载界面
+            setTimeout(() => {
+                document.getElementById('loading').classList.add('hidden');
+                console.log('✅ v3 初始化完成');
+                
+                // 欢迎语
+                setTimeout(() => {
+                    const welcomes = [
+                        { emoji: '👋✨', text: 'Hello! I\'m your friend!', phonetic: '你好！我是你的朋友！' },
+                        { emoji: '🤗💕', text: 'Hi there! Let\'s play!', phonetic: '嗨！我们一起玩吧！' },
+                        { emoji: '🎉👋', text: 'Welcome! Ready for fun?', phonetic: '欢迎！准备好玩了吗？' }
+                    ];
+                    const welcome = welcomes[Math.floor(Math.random() * welcomes.length)];
+                    showContent(welcome);
+                }, 500);
+            }, 500);
+        }
+
+        function updateLoadingStep(step, status) {
+            const el = document.getElementById(`step${step}`);
+            if (status === 'active') {
+                el.classList.add('active');
+                el.querySelector('span').textContent = '🔄';
+            } else if (status === 'done') {
+                el.classList.add('done');
+                el.querySelector('span').textContent = '✅';
+            }
+        }
+
+        // ============== 生成场景按钮 ==============
+        function generateSceneButtons() {
+            const container = document.getElementById('sceneButtons');
+            container.innerHTML = '';
+            
+            Object.entries(SCENES_DATA).forEach(([key, scene]) => {
+                const btn = document.createElement('button');
+                btn.className = `scene-btn ${key} ${key === 'wash' ? 'active' : ''}`;
+                btn.onclick = () => selectScene(key);
+                btn.innerHTML = `
+                    <span class="emoji">${scene.emoji}</span>
+                    <span class="label">${scene.name}</span>
+                `;
+                container.appendChild(btn);
+            });
+        }
+
+        // ============== 语音系统 ==============
+        async function initSpeech() {
+            if (!('speechSynthesis' in window)) {
+                console.error('❌ Web Speech API not supported');
+                return;
+            }
+
+            state.voices = state.speechSynthesis.getVoices();
+            
+            if (state.speechSynthesis.onvoiceschanged !== undefined) {
+                state.speechSynthesis.onvoiceschanged = () => {
+                    state.voices = state.speechSynthesis.getVoices();
+                };
+            }
+        }
+
+        function speak(text, options = {}) {
+            return new Promise((resolve) => {
+                if (!text || !state.speechSynthesis) {
+                    resolve();
+                    return;
+                }
+
+                state.speechSynthesis.cancel();
+                state.isSpeaking = true;
+
+                const container = document.getElementById('emojiContainer');
+                container.classList.add('speaking');
+
+                const utterance = new SpeechSynthesisUtterance(text);
+                utterance.lang = 'en-US';
+                
+                // 根据年龄调整语速
+                utterance.rate = options.rate || CONFIG.speechRate;
+                utterance.pitch = options.pitch || getVoicePitch();
+
+                const englishVoices = state.voices.filter(v => v.lang.includes('en'));
+                if (englishVoices.length > 0) {
+                    utterance.voice = englishVoices[0];
+                }
+
+                utterance.onend = () => {
+                    state.isSpeaking = false;
+                    container.classList.remove('speaking');
+                    resolve();
+                };
+
+                utterance.onerror = () => {
+                    state.isSpeaking = false;
+                    container.classList.remove('speaking');
+                    resolve();
+                };
+
+                state.speechSynthesis.speak(utterance);
+            });
+        }
+
+        function getVoicePitch() {
+            switch(state.currentVoice) {
+                case 'child': return 1.3;
+                case 'male': return 0.9;
+                case 'female': return 1.1;
+                default: return 1.0;
+            }
+        }
+
+        // ============== 音画同步 ==============
+        async function showContent(stepData) {
+            const emojiEl = document.getElementById('emojiDisplay');
+            const textEl = document.getElementById('englishText');
+            const phoneticEl = document.getElementById('phoneticText');
+
+            textEl.classList.remove('show');
+            phoneticEl.classList.remove('show');
+
+            emojiEl.textContent = stepData.emoji;
+            emojiEl.classList.remove('bounce');
+            void emojiEl.offsetWidth;
+            emojiEl.classList.add('bounce');
+
+            textEl.textContent = stepData.text;
+            phoneticEl.textContent = stepData.phonetic;
+
+            textEl.classList.add('show');
+            phoneticEl.classList.add('show');
+
+            await speak(stepData.text);
+        }
+
+        // ============== 场景控制 ==============
+        function selectScene(scene) {
+            state.currentScene = scene;
+            state.currentStep = 0;
+            
+            document.querySelectorAll('.scene-btn').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            document.querySelector(`.scene-btn.${scene}`).classList.add('active');
+            
+            updateDisplay();
+        }
+
+        function updateDisplay() {
+            const scene = SCENES_DATA[state.currentScene];
+            const steps = scene.levels[CONFIG.childAge];
+            const step = steps[state.currentStep];
+            
+            document.getElementById('emojiDisplay').textContent = step.emoji;
+            document.getElementById('englishText').textContent = step.text;
+            document.getElementById('englishText').classList.add('show');
+            document.getElementById('phoneticText').textContent = step.phonetic;
+            document.getElementById('phoneticText').classList.add('show');
+        }
+
+        async function startInteraction() {
+            state.currentStep = 0;
+            const scene = SCENES_DATA[state.currentScene];
+            const steps = scene.levels[CONFIG.childAge];
+            
+            for (let i = 0; i < steps.length; i++) {
+                state.currentStep = i;
+                await showContent(steps[i]);
+                
+                if (i < steps.length - 1) {
+                    await delay(500);
+                }
+            }
+        }
+
+        async function repeatCurrent() {
+            const scene = SCENES_DATA[state.currentScene];
+            const steps = scene.levels[CONFIG.childAge];
+            await showContent(steps[state.currentStep]);
+        }
+
+        function delay(ms) {
+            return new Promise(resolve => setTimeout(resolve, ms));
+        }
+
+        // ============== 语音设置 ==============
+        function setVoice(voiceType) {
+            state.currentVoice = voiceType;
+            
+            document.querySelectorAll('.voice-btn').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            document.querySelector(`.voice-btn[data-voice="${voiceType}"]`).classList.add('active');
+            
+            speak('Hello! I am your friend!');
+        }
+
+        // ============== 摄像头检测 ==============
+        async function initDetectionModel() {
+            try {
+                state.detectionModel = await cocoSsd.load();
+                state.modelLoaded = true;
+            } catch (e) {
+                console.error('Model load failed:', e);
+            }
+        }
+
+        async function toggleCamera() {
+            const btn = document.getElementById('cameraBtn');
+            const container = document.getElementById('cameraContainer');
+            const video = document.getElementById('cameraVideo');
+
+            if (!state.cameraActive) {
+                try {
+                    const stream = await navigator.mediaDevices.getUserMedia({ 
+                        video: { facingMode: 'user' },
+                        audio: false 
+                    });
+                    video.srcObject = stream;
+                    state.cameraActive = true;
+                    btn.textContent = '📷 关闭摄像头';
+                    btn.classList.add('active');
+                    container.classList.remove('hidden');
+                    
+                    startDetection();
+                    document.getElementById('systemStatus').textContent = '📷 检测中';
+                    document.getElementById('systemStatus').className = 'status-badge active';
+                } catch (e) {
+                    alert('无法访问摄像头，请检查权限设置');
+                }
+            } else {
+                const stream = video.srcObject;
+                if (stream) {
+                    stream.getTracks().forEach(track => track.stop());
+                }
+                video.srcObject = null;
+                state.cameraActive = false;
+                btn.textContent = '📷 开启摄像头';
+                btn.classList.remove('active');
+                container.classList.add('hidden');
+            }
+        }
+
+        async function startDetection() {
+            if (!state.cameraActive || !state.detectionModel) return;
+
+            const video = document.getElementById('cameraVideo');
+            const canvas = document.getElementById('cameraCanvas');
+            const ctx = canvas.getContext('2d');
+            const statusEl = document.getElementById('detectionStatus');
+
+            canvas.width = video.videoWidth || 320;
+            canvas.height = video.videoHeight || 240;
+
+            async function detect() {
+                if (!state.cameraActive) return;
+
+                try {
+                    const predictions = await state.detectionModel.detect(video);
+                    ctx.clearRect(0, 0, canvas.width, canvas.height);
+                    
+                    const persons = predictions.filter(p => p.class === 'person' && p.score > 0.5);
+                    
+                    if (persons.length > 0) {
+                        persons.forEach(person => {
+                            const [x, y, width, height] = person.bbox;
+                            ctx.strokeStyle = '#4ECDC4';
+                            ctx.lineWidth = 3;
+                            ctx.strokeRect(x, y, width, height);
+                        });
+                        
+                        state.personDetectedCount++;
+                        statusEl.textContent = `👤 检测到 ${persons.length} 人`;
+                        
+                        if (state.personDetectedCount >= CONFIG.detectionThreshold) {
+                            triggerAutoScene();
+                        }
+                    } else {
+                        state.personDetectedCount = 0;
+                        statusEl.textContent = '👀 扫描中...';
+                    }
+                } catch (e) {
+                    console.error('Detection error:', e);
+                }
+
+                setTimeout(detect, CONFIG.detectionInterval);
+            }
+
+            detect();
+        }
+
+        function triggerAutoScene() {
+            const now = Date.now();
+            if (now - state.lastSceneTrigger < CONFIG.sceneCooldown) return;
+            
+            state.lastSceneTrigger = now;
+            state.personDetectedCount = 0;
+            
+            startInteraction();
+            
+            document.getElementById('systemStatus').textContent = '🎉 已互动';
+            setTimeout(() => {
+                document.getElementById('systemStatus').textContent = '📷 检测中';
+            }, 3000);
+        }
+
+        // ============== API Key 控制 ==============
+        function toggleApiKeyInput() {
+            document.getElementById('apiKeyModal').style.display = 'flex';
+            document.getElementById('apiKeyInput').value = CONFIG.geminiApiKey || '';
+        }
+
+        function closeApiKeyModal() {
+            document.getElementById('apiKeyModal').style.display = 'none';
+        }
+
+        function saveApiKey() {
+            const key = document.getElementById('apiKeyInput').value.trim();
+            if (key) {
+                CONFIG.geminiApiKey = key;
+                localStorage.setItem('kidCompanionApiKey', key);
+                alert('✅ API Key 已保存');
+            } else {
+                CONFIG.geminiApiKey = '';
+                localStorage.removeItem('kidCompanionApiKey');
+                alert('📝 已清空 API Key');
+            }
+            closeApiKeyModal();
+        }
+
+        // 页面加载时检查本地存储的 API Key
+        window.addEventListener('load', () => {
+            const savedKey = localStorage.getItem('kidCompanionApiKey');
+            if (savedKey) {
+                CONFIG.geminiApiKey = savedKey;
+                console.log('✅ API Key 已从本地存储加载');
+            }
+        });
+
+        // ============== 语音识别 ==============
+        function initSpeechRecognition() {
+            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+            
+            if (!SpeechRecognition) {
+                document.getElementById('chatHint').textContent = '当前浏览器不支持语音输入';
+                return;
+            }
+
+            state.recognition = new SpeechRecognition();
+            state.recognition.lang = 'zh-CN';
+            state.recognition.continuous = false;
+            state.recognition.interimResults = false;
+
+            state.recognition.onresult = (event) => {
+                const transcript = event.results[0][0].transcript;
+                handleUserInput(transcript);
+            };
+
+            state.recognition.onerror = () => {
+                stopRecording();
+            };
+
+            state.recognition.onend = () => {
+                stopRecording();
+            };
+        }
+
+        function startRecording() {
+            if (!state.recognition || state.isRecording) return;
+            
+            state.isRecording = true;
+            document.getElementById('micBtn').classList.add('recording');
+            document.getElementById('chatHint').classList.add('recording');
+            document.getElementById('chatHint').innerHTML = '<span>🔴</span> 正在听...';
+            
+            try {
+                state.recognition.start();
+            } catch (e) {
+                console.error('Start recording error:', e);
+            }
+        }
+
+        function stopRecording() {
+            if (!state.recognition || !state.isRecording) return;
+            
+            state.isRecording = false;
+            document.getElementById('micBtn').classList.remove('recording');
+            document.getElementById('chatHint').classList.remove('recording');
+            document.getElementById('chatHint').innerHTML = '<span>🎤</span> 按住麦克风跟我说话（中文也可以）';
+            
+            try {
+                state.recognition.stop();
+            } catch (e) {
+                console.error('Stop recording error:', e);
+            }
+        }
+
+        // ============== Gemini AI 集成 ==============
+        async function handleUserInput(text) {
+            document.getElementById('phoneticText').textContent = `你说：${text}`;
+            document.getElementById('phoneticText').classList.add('show');
+
+            // 显示 AI 思考中
+            document.getElementById('chatHint').classList.add('ai-thinking');
+            document.getElementById('chatHint').innerHTML = '<span>🤖</span> AI 思考中...';
+
+            let response;
+
+            if (CONFIG.geminiApiKey) {
+                // 使用 Gemini AI
+                response = await callGeminiAI(text);
+            } else {
+                // 使用本地规则匹配
+                response = generateLocalResponse(text);
+            }
+
+            // 隐藏思考状态
+            document.getElementById('chatHint').classList.remove('ai-thinking');
+            document.getElementById('chatHint').innerHTML = '<span>🎤</span> 按住麦克风跟我说话（中文也可以）';
+
+            await showContent(response);
+        }
+
+        async function callGeminiAI(userText) {
+            const ageLabels = ['', '1-2岁', '2-3岁', '3-4岁', '4-5岁'];
+            const ageLabel = ageLabels[CONFIG.childAge];
+
+            const prompt = `你是一个${ageLabel}儿童的英语启蒙伙伴。孩子对你说："${userText}"
+
+请用适合${ageLabel}儿童的英语回复，要求：
+1. 句子简单，符合该年龄段认知水平
+2. 配合 Emoji 表情
+3. 用鼓励、友好的语气
+4. 如果孩子在说中文，先用中文理解，再用英文回复
+
+请按以下格式回复（必须严格遵循）：
+EMOJI: [一个合适的emoji]
+ENGLISH: [英文回复，简短]
+CHINESE: [中文翻译]
+
+例如：
+EMOJI: 👋
+ENGLISH: Hello! Let's play together!
+CHINESE: 你好！我们一起玩吧！`;
+
+            try {
+                const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=${CONFIG.geminiApiKey}`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        contents: [{
+                            parts: [{ text: prompt }]
+                        }],
+                        generationConfig: {
+                            temperature: 0.7,
+                            maxOutputTokens: 100
+                        }
+                    })
+                });
+
+                const data = await response.json();
+                
+                if (data.candidates && data.candidates[0] && data.candidates[0].content) {
+                    const text = data.candidates[0].content.parts[0].text;
+                    return parseGeminiResponse(text);
+                }
+            } catch (e) {
+                console.error('Gemini API error:', e);
+            }
+
+            // API 失败，回退到本地响应
+            return generateLocalResponse(userText);
+        }
+
+        function parseGeminiResponse(text) {
+            const lines = text.split('\n');
+            let emoji = '✨';
+            let english = 'Hello!';
+            let chinese = '你好！';
+
+            lines.forEach(line => {
+                if (line.startsWith('EMOJI:')) {
+                    emoji = line.replace('EMOJI:', '').trim();
+                } else if (line.startsWith('ENGLISH:')) {
+                    english = line.replace('ENGLISH:', '').trim();
+                } else if (line.startsWith('CHINESE:')) {
+                    chinese = line.replace('CHINESE:', '').trim();
+                }
+            });
+
+            return { emoji, text: english, phonetic: chinese };
+        }
+
+        function generateLocalResponse(userText) {
+            const lowerText = userText.toLowerCase();
+            
+            // 检查场景触发词
+            for (const [sceneKey, scene] of Object.entries(SCENES_DATA)) {
+                if (scene.triggerWords.some(word => lowerText.includes(word))) {
+                    selectScene(sceneKey);
+                    const steps = scene.levels[CONFIG.childAge];
+                    return steps[0];
+                }
+            }
+            
+            // 通用回复（按年龄）
+            const genericResponses = {
+                1: [
+                    { emoji: '😊👋', text: 'Hello!', phonetic: '你好！' },
+                    { emoji: '🤗', text: 'Hug!', phonetic: '抱抱！' },
+                    { emoji: '👏', text: 'Good!', phonetic: '真棒！' }
+                ],
+                2: [
+                    { emoji: '😊👋', text: 'Hello! Nice to meet you!', phonetic: '你好！很高兴见到你！' },
+                    { emoji: '🤗💕', text: 'Give me a hug!', phonetic: '给我抱抱！' },
+                    { emoji: '👏✨', text: 'You are great!', phonetic: '你真棒！' }
+                ],
+                3: [
+                    { emoji: '😊👋', text: 'Hello! How are you today?', phonetic: '你好！你今天好吗？' },
+                    { emoji: '🤗💕', text: 'I love you!', phonetic: '我爱你！' },
+                    { emoji: '👏✨', text: 'You are so smart!', phonetic: '你真聪明！' }
+                ],
+                4: [
+                    { emoji: '😊✨', text: 'Hello there! What do you want to do today?', phonetic: '你好！你今天想做什么？' },
+                    { emoji: '🤗💕', text: 'You\'re my best friend!', phonetic: '你是我最好的朋友！' },
+                    { emoji: '🌟👏', text: 'You\'re doing amazing!', phonetic: '你做得太棒了！' }
+                ]
+            };
+            
+            const responses = genericResponses[CONFIG.childAge] || genericResponses[2];
+            return responses[Math.floor(Math.random() * responses.length)];
+        }
+    </script>
+</body>
+</html>
