@@ -213,8 +213,38 @@
             cursor: pointer;
             font-size: 14px;
         }
-        .camera-toggle.active {
-            background: #4ECDC4;
+        /* 实时监听切换按钮 */
+        .listen-toggle {
+            padding: 8px 15px;
+            background: #95a5a6;
+            color: white;
+            border: none;
+            border-radius: 20px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.3s;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+        .listen-toggle.active {
+            background: #e74c3c;
+            animation: pulse 1.5s infinite;
+        }
+        .listen-toggle.active::before {
+            content: '🔴 ';
+        }
+
+        /* 摄像头切换按钮 */
+        .camera-switch {
+            padding: 8px 15px;
+            background: #3498db;
+            color: white;
+            border: none;
+            border-radius: 20px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.3s;
         }
 
         /* 主显示区域 */
@@ -634,6 +664,8 @@
                     <button class="voice-btn" data-voice="male" onclick="setVoice('male')">👦男声</button>
                     <button class="voice-btn" data-voice="female" onclick="setVoice('female')">👧女声</button>
                 </div>
+                <button class="listen-toggle" id="listenBtn" onclick="toggleContinuousListening()">🎤 实时监听</button>
+                <button class="camera-switch" id="cameraSwitchBtn" onclick="switchCamera()">🔄 切换镜头</button>
                 <button class="camera-toggle" id="cameraBtn" onclick="toggleCamera()">📷 开启摄像头</button>
             </div>
         </header>
@@ -1061,6 +1093,8 @@
             isSpeaking: false,
             isRecording: false,
             cameraActive: false,
+            currentCamera: 'user', // 'user'=前置, 'environment'=后置
+            isContinuousListening: false, // 实时监听模式
             modelLoaded: false,
             detectionModel: null,
             personDetectedCount: 0,
@@ -1326,16 +1360,162 @@
             return new Promise(resolve => setTimeout(resolve, ms));
         }
 
-        // ============== 语音设置 ==============
-        function setVoice(voiceType) {
-            state.currentVoice = voiceType;
+        // ============== 摄像头切换功能 ==============
+        async function switchCamera() {
+            if (!state.cameraActive) {
+                alert('请先开启摄像头');
+                return;
+            }
             
-            document.querySelectorAll('.voice-btn').forEach(btn => {
+            const video = document.getElementById('cameraVideo');
+            const btn = document.getElementById('cameraSwitchBtn');
+            
+            // 停止当前视频流
+            const stream = video.srcObject;
+            if (stream) {
+                stream.getTracks().forEach(track => track.stop());
+            }
+            
+            // 切换摄像头
+            state.currentCamera = state.currentCamera === 'user' ? 'environment' : 'user';
+            
+            try {
+                const newStream = await navigator.mediaDevices.getUserMedia({
+                    video: { facingMode: state.currentCamera },
+                    audio: false
+                });
+                video.srcObject = newStream;
+                btn.textContent = state.currentCamera === 'user' ? '🔄 后置镜头' : '🔄 前置镜头';
+                console.log(`📷 切换到 ${state.currentCamera === 'user' ? '前置' : '后置'}摄像头`);
+            } catch (e) {
+                console.error('切换摄像头失败:', e);
+                alert('切换摄像头失败，请检查设备支持');
+                // 恢复原来的设置
+                state.currentCamera = state.currentCamera === 'user' ? 'environment' : 'user';
+            }
+        }
+
+        // ============== 实时监听切换功能 ==============
+        function toggleContinuousListening() {
+            const btn = document.getElementById('listenBtn');
+            
+            if (state.isContinuousListening) {
+                // 关闭实时监听
+                state.isContinuousListening = false;
                 btn.classList.remove('active');
-            });
-            document.querySelector(`.voice-btn[data-voice="${voiceType}"]`).classList.add('active');
+                btn.textContent = '🎤 实时监听';
+                
+                // 停止持续监听
+                if (state.recognition) {
+                    try {
+                        state.recognition.stop();
+                    } catch (e) {}
+                }
+                
+                // 恢复按住说话模式
+                document.getElementById('micBtn').style.display = 'block';
+                document.getElementById('chatHint').innerHTML = '<span>🎤</span> 按住麦克风跟我说话（中文也可以）';
+                
+                console.log('🔴 实时监听已关闭');
+            } else {
+                // 开启实时监听
+                state.isContinuousListening = true;
+                btn.classList.add('active');
+                btn.textContent = '🔴 监听中...';
+                
+                // 隐藏按住说话按钮
+                document.getElementById('micBtn').style.display = 'none';
+                document.getElementById('chatHint').innerHTML = '<span>🔴</span> 实时监听中，直接说话即可';
+                
+                // 初始化持续监听
+                initContinuousRecognition();
+                
+                console.log('🟢 实时监听已开启');
+            }
+        }
+
+        function initContinuousRecognition() {
+            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
             
-            speak('Hello! I am your friend!');
+            if (!SpeechRecognition) {
+                alert('当前浏览器不支持语音识别');
+                return;
+            }
+
+            // 重新创建识别实例（支持持续模式）
+            state.recognition = new SpeechRecognition();
+            state.recognition.lang = 'zh-CN';
+            state.recognition.continuous = true;  // 持续监听
+            state.recognition.interimResults = true;  // 显示中间结果
+            
+            let finalTranscript = '';
+            let silenceTimer = null;
+            const SILENCE_TIMEOUT = 1500; // 1.5秒沉默视为结束
+
+            state.recognition.onresult = (event) => {
+                let interimTranscript = '';
+                
+                for (let i = event.resultIndex; i < event.results.length; i++) {
+                    const transcript = event.results[i][0].transcript;
+                    if (event.results[i].isFinal) {
+                        finalTranscript += transcript;
+                    } else {
+                        interimTranscript += transcript;
+                    }
+                }
+                
+                // 更新显示中间结果
+                if (interimTranscript) {
+                    document.getElementById('phoneticText').textContent = `听到：${interimTranscript}`;
+                    document.getElementById('phoneticText').classList.add('show');
+                }
+                
+                // 重置沉默计时器
+                if (silenceTimer) clearTimeout(silenceTimer);
+                silenceTimer = setTimeout(() => {
+                    if (finalTranscript.trim()) {
+                        console.log('🎤 检测到语音:', finalTranscript);
+                        handleUserInput(finalTranscript.trim());
+                        finalTranscript = '';
+                    }
+                }, SILENCE_TIMEOUT);
+            };
+
+            state.recognition.onerror = (event) => {
+                console.error('语音识别错误:', event.error);
+                // 如果是非严重错误，尝试重新开始
+                if (event.error !== 'not-allowed' && event.error !== 'service-not-allowed') {
+                    setTimeout(() => {
+                        if (state.isContinuousListening) {
+                            try {
+                                state.recognition.start();
+                            } catch (e) {}
+                        }
+                    }, 500);
+                }
+            };
+
+            state.recognition.onend = () => {
+                // 如果仍在持续监听模式，自动重启
+                if (state.isContinuousListening) {
+                    setTimeout(() => {
+                        try {
+                            state.recognition.start();
+                            console.log('🔄 语音识别自动重启');
+                        } catch (e) {
+                            console.error('重启语音识别失败:', e);
+                        }
+                    }, 200);
+                }
+            };
+
+            // 开始监听
+            try {
+                state.recognition.start();
+                speak('实时监听已开启，直接说话吧！');
+            } catch (e) {
+                console.error('启动语音识别失败:', e);
+            }
         }
 
         // ============== 摄像头检测 ==============
@@ -1352,11 +1532,12 @@
             const btn = document.getElementById('cameraBtn');
             const container = document.getElementById('cameraContainer');
             const video = document.getElementById('cameraVideo');
+            const switchBtn = document.getElementById('cameraSwitchBtn');
 
             if (!state.cameraActive) {
                 try {
                     const stream = await navigator.mediaDevices.getUserMedia({ 
-                        video: { facingMode: 'user' },
+                        video: { facingMode: state.currentCamera },
                         audio: false 
                     });
                     video.srcObject = stream;
@@ -1364,6 +1545,10 @@
                     btn.textContent = '📷 关闭摄像头';
                     btn.classList.add('active');
                     container.classList.remove('hidden');
+                    
+                    // 显示切换按钮
+                    switchBtn.style.display = 'inline-block';
+                    switchBtn.textContent = state.currentCamera === 'user' ? '🔄 后置镜头' : '🔄 前置镜头';
                     
                     startDetection();
                     document.getElementById('systemStatus').textContent = '📷 检测中';
@@ -1381,6 +1566,9 @@
                 btn.textContent = '📷 开启摄像头';
                 btn.classList.remove('active');
                 container.classList.add('hidden');
+                
+                // 隐藏切换按钮
+                switchBtn.style.display = 'none';
             }
         }
 
@@ -1509,12 +1697,19 @@
         }
 
         function startRecording() {
+            // 如果开启了实时监听，不响应按住录音
+            if (state.isContinuousListening) return;
+            
             if (!state.recognition || state.isRecording) return;
             
             state.isRecording = true;
             document.getElementById('micBtn').classList.add('recording');
             document.getElementById('chatHint').classList.add('recording');
             document.getElementById('chatHint').innerHTML = '<span>🔴</span> 正在听...';
+            
+            // 设置为单次模式
+            state.recognition.continuous = false;
+            state.recognition.interimResults = false;
             
             try {
                 state.recognition.start();
